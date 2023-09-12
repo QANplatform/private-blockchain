@@ -1,0 +1,5 @@
+data/*/db
+data/*/debug.bin
+data/_shared/*.enode
+data/*/nodekey
+tools
