@@ -1,0 +1,180 @@
+version: '3.8'
+
+services:
+
+    ########## XLINK CROSS-SIGNERS START ##########
+    xlink_a:
+        image: qanplatform/xlink
+        restart: always
+        container_name: xlink_a
+        hostname: xlink_a
+        command: ["0", http://node_a:8545] # 0th wallet derived from mnemonic = 0x23daEdBF01DA2c5423BAE371aa3524fDa0dDA425
+        volumes:
+            - ./data/_shared/mnemonic.txt:/xlink/mnemonic.txt
+        networks:
+            - blockchain-external
+    
+    xlink_b:
+        image: qanplatform/xlink
+        restart: always
+        container_name: xlink_b
+        hostname: xlink_b
+        command: ["1", http://node_b:8545] # 1st wallet derived from mnemonic = 0x3CcC1a96cDC7017bAC63e1adcDA2226FeFeC6894
+        volumes:
+            - ./data/_shared/mnemonic.txt:/xlink/mnemonic.txt
+        networks:
+            - blockchain-external
+
+    xlink_c:
+        image: qanplatform/xlink
+        restart: always
+        container_name: xlink_c
+        hostname: xlink_c
+        command: ["2", http://node_c:8545] # 2nd wallet derived from mnemonic = 0xCDB0Cd42c87cB5A670267eD9ff8402D580636d4b
+        volumes:
+            - ./data/_shared/mnemonic.txt:/xlink/mnemonic.txt
+        networks:
+            - blockchain-external
+    ##########  XLINK CROSS-SIGNERS END  ##########
+
+    ########## BLOCKCHAIN NODES START ##########
+    node_a:
+        image: qanplatform/private-blockchain
+        container_name: node_a
+        hostname: node_a
+        restart: always
+        volumes:
+            - ./data/a:/data/private
+            - ./data/_shared:/data/shared
+            - /var/run/docker.sock:/var/run/docker.sock
+        env_file: .env
+        ports:
+            - 8545:8545
+        networks:
+            - blockchain-external
+            - blockchain-internal
+
+    node_b:
+        image: qanplatform/private-blockchain
+        container_name: node_b
+        restart: always
+        hostname: node_b
+        volumes:
+            - ./data/b:/data/private
+            - ./data/_shared:/data/shared
+            - /var/run/docker.sock:/var/run/docker.sock
+        env_file: .env
+        networks:
+            - blockchain-external
+            - blockchain-internal
+    node_c:
+        image: qanplatform/private-blockchain
+        container_name: node_c
+        restart: always
+        hostname: node_c
+        volumes:
+            - ./data/c:/data/private
+            - ./data/_shared:/data/shared
+            - /var/run/docker.sock:/var/run/docker.sock
+        env_file: .env
+        networks:
+            - blockchain-external
+            - blockchain-internal
+    ##########  BLOCKCHAIN NODES END  ##########
+
+    ########## QVM MANAGER START ##########
+    qvmm:
+        image: qanplatform/private-blockchain
+        container_name: qvmm
+        restart: on-failure
+        hostname: qvmm
+        privileged: true # required for QVM
+        devices:
+            - /dev/kvm:/dev/kvm
+        networks:
+            - blockchain-internal
+        expose:
+            - 8001
+        entrypoint: [ "/app/qvmm" ]
+        command: [ "-noVM", "4", "-noCPU", "1", "-m", "1073741824" ]
+    ##########  QVM MANAGER END  ##########
+
+    ########## EXPLORER COMPONENTS START ##########
+    db:
+        restart: always
+        hostname: db
+        container_name: db
+        image: postgres:15.4-alpine3.18
+        environment:
+            POSTGRES_DB: postgres # default, can be omitted
+            POSTGRES_USER: postgres # default, can be omitted
+            POSTGRES_PASSWORD: postgres
+        volumes:
+            - explorer-db:/var/lib/postgresql/data
+        networks:
+            - explorer-internal
+
+    scraper:
+        restart: always
+        hostname: scraper
+        container_name: scraper
+        image: librescan/backend-scraper
+        environment:
+            RPC_URL: http://node_a:8545
+            POSTGRES_HOST: explorer-db
+            POSTGRES_PORT: 5432
+            POSTGRES_DB: postgres
+            POSTGRES_USER: postgres
+            POSTGRES_PASSWORD: postgres
+        env_file: .env
+        networks:
+            - explorer-internal
+            - blockchain-external
+
+    service:
+        restart: always
+        hostname: service
+        container_name: service
+        image: librescan/backend-service
+        environment:
+            QAN_RPC_URL: http://node_a:8545
+            LISTEN: :42069
+            POSTGRES_HOST: db
+            POSTGRES_PORT: 5432
+            POSTGRES_DB: postgres
+            POSTGRES_USER: postgres
+            POSTGRES_PASSWORD: postgres
+        networks:
+            - explorer-internal
+            - explorer-external
+            - blockchain-external
+
+    frontend:
+        restart: always
+        hostname: frontend
+        container_name: frontend
+        image: librescan/frontend-web
+        environment:
+            NUXT_APP_GRPC_API_URL: service:42069
+            NUXT_APP_TOKEN_SYMBOL: QANX
+            NUXT_APP_TOKEN_DECIMALS: '18'
+            NUXT_APP_LOGO_TYPE: QAN
+        networks:
+            - explorer-external
+        ports:
+            - 80:3000
+    ##########  EXPLORER COMPONENTS END  ##########
+
+volumes:
+    explorer-db:
+
+networks:
+    blockchain-internal:
+        driver: bridge
+        name: qvm_dind_network
+    blockchain-external:
+        driver: bridge
+    explorer-internal:
+        driver: bridge
+    explorer-external:
+        driver: bridge
